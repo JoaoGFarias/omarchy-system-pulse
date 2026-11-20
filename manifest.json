@@ -4,8 +4,18 @@
   "name": "System monitor",
   "version": "1.0.0",
   "author": "JoaoGFarias",
-  "description": "Live CPU and memory usage in the bar",
-  "kinds": ["bar-widget"],
-  "entryPoints": { "barWidget": "BarWidget.qml" },
-  "barWidget": { "displayName": "System monitor", "description": "Live CPU and memory usage", "category": "System", "allowMultiple": false, "defaultSection": "right" }
+  "description": "Live CPU and memory in the bar, with a details card: per-thread load, CPU temperature and memory. Configurable refresh interval.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "System monitor",
+    "description": "Live CPU and memory in the bar, with a details card: per-thread load, CPU temperature and memory. Configurable refresh interval.",
+    "category": "System",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
 }

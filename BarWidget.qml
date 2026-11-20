@@ -26,6 +26,17 @@ BarWidget {
   readonly property int pollInterval: Model.clampInterval(root.setting("interval", 2000))
 
   function close() { popupOpen = false }
+  function togglePopup() { popupOpen = !popupOpen }
+
+  // Command-line control, e.g. for a keybinding or the verify script:
+  //   omarchy-shell joao.sysmon toggle
+  //   omarchy-shell joao.sysmon close
+  ShellIpc {
+    target: "joao.sysmon"
+
+    function toggle(): void { root.broadcast("togglePopup") }
+    function close(): void { root.broadcast("close") }
+  }
   function openBtop() {
     popupOpen = false
     if (root.bar) root.bar.run("omarchy-launch-or-focus-tui btop")
