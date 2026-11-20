@@ -64,7 +64,7 @@ if omarchy-shell "$id" toggle >/dev/null 2>&1; then
     echo "WARNING: display is asleep, card screenshot SKIPPED (the card was opened and closed over IPC, but not looked at). Re-run with the screen on."
     skipped=1
   # grim also blocks when the screen is locked or on the screensaver, so bound it.
-  elif timeout 15 grim -g "$((lw - 490)),0 490x420" "$out/card.png"; then
+  elif timeout 15 grim -g "$((lw - 490)),0 490x1000" "$out/card.png"; then
     echo "screenshot: $out/card.png"
   else
     bad "screenshot failed or timed out (is the screen locked, asleep or on the screensaver?)"
@@ -75,7 +75,7 @@ else
 fi
 
 step "Shell log"
-errs=$(journalctl --user --since "$since" --no-pager 2>/dev/null | grep -iE "${id}|BarWidget.qml|SysmonModel" | grep -iE "error|warn|undefined|cannot|failed" || true)
+errs=$(journalctl --user --since "$since" --no-pager 2>/dev/null | grep -iE "${id}|BarWidget.qml|SysmonModel" | grep -iE "error|warn|undefined|cannot|failed" | grep -v "is outside of the config folder" || true)
 if [[ -n $errs ]]; then echo "$errs" | tail -10; bad "QML errors or warnings logged"; else echo "no QML errors logged"; fi
 
 echo

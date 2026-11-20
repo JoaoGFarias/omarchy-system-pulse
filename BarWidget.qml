@@ -191,15 +191,17 @@ BarWidget {
   component Spark: Item {
     id: spark
     property var values: []
+    property int slots: 30
     height: Style.space(24)
     Row {
+      anchors.right: parent.right
       anchors.bottom: parent.bottom
       height: parent.height
       spacing: Style.space(1)
       Repeater {
         model: spark.values
         Item {
-          width: Math.max(1, (spark.width - Style.space(1) * (Math.max(1, spark.values.length) - 1)) / Math.max(1, spark.values.length))
+          width: Math.max(1, (spark.width - Style.space(1) * (spark.slots - 1)) / spark.slots)
           height: spark.height
           Rectangle {
             anchors.bottom: parent.bottom
@@ -301,9 +303,9 @@ BarWidget {
         font.pixelSize: Style.font.body
       }
 
-      Spark { width: parent.width; values: root.cpuHistory }
+      Spark { width: parent.width; slots: Model.historyLength(root.pollInterval); values: root.cpuHistory }
       Caption { text: strings.t("popup.historyCpu") }
-      Spark { width: parent.width; values: root.memHistory }
+      Spark { width: parent.width; slots: Model.historyLength(root.pollInterval); values: root.memHistory }
       Caption { text: strings.t("popup.historyMemory") }
 
       Caption {
