@@ -7,6 +7,11 @@ A bar widget for the [Omarchy](https://omarchy.org/) shell that shows live CPU a
 - Tooltip with exact values and GB used / total
 - Click to open btop
 
+## Requirements
+
+- Omarchy with the shell (Quickshell) bar
+- `btop` (ships with Omarchy), used by the click action
+
 ## Install
 
 ```bash
