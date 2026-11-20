@@ -1,4 +1,4 @@
-# System Pulse (omarchy-sysmon)
+# System Pulse
 
 ![CPU and memory in the Omarchy bar with the details card open: CPU temperature, a load bar per thread, and memory usage](preview.png)
 
@@ -21,7 +21,7 @@ A bar widget for the [Omarchy](https://omarchy.org/) shell that shows live CPU a
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/JoaoGFarias/omarchy-sysmon.git --enable
+omarchy plugin add https://github.com/JoaoGFarias/omarchy-system-pulse.git --enable
 omarchy bar put joao.sysmon --section right
 ```
 
