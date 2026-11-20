@@ -52,10 +52,15 @@ MIT
 
 ## Development
 
-The parsing and math live in `SysmonModel.js` and are unit tested with Node's built-in test runner:
+The parsing and math live in `SysmonModel.js`. It is typed with JSDoc and checked by `tsc --checkJs` (no build step; TypeScript is fetched on demand with `npx` and pinned, so there is no `node_modules` in the plugin folder), then unit tested with Node's built-in test runner. CI keeps all of it at 100%:
 
 ```bash
-npm test
+npm test               # typecheck + unit tests
+npm run coverage       # fails below 100% lines, branches or functions
+npm run mutation       # StrykerJS in a throwaway workspace; fails below a 100% mutation score
+npm run check          # typecheck + coverage
 ```
+
+Coverage and mutation testing cover `SysmonModel.js`, which holds all the logic that can run under Node. `BarWidget.qml` is checked on a real desktop by `scripts/verify.sh`.
 
 `scripts/verify.sh` checks the plugin end to end on a running Omarchy desktop with no clicking: unit tests, manifest, bar preview, a live reload, the details card opened over IPC and screenshotted, and a scan of the shell log for QML errors. Run it with `--restart` if the live shell doesn't pick up a change.

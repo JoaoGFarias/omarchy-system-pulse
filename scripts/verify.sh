@@ -29,6 +29,7 @@ done
 [[ -n $out ]] || out=$(mktemp -d)
 mkdir -p "$out"
 fail=0
+skipped=0
 step() { printf '\n== %s\n' "$*"; }
 bad() { echo "FAIL: $*"; fail=1; }
 
@@ -57,7 +58,17 @@ if omarchy-shell "$id" toggle >/dev/null 2>&1; then
   sleep 2
   read -r w scale < <(hyprctl monitors -j | jq -r '.[0] | "\(.width) \(.scale)"')
   lw=$(awk -v w="$w" -v s="$scale" 'BEGIN{printf "%d", w/s}')
-  grim -g "$((lw - 490)),0 490x420" "$out/card.png" && echo "screenshot: $out/card.png" || bad "screenshot failed"
+  # A sleeping display produces no frames, so grim would wait forever. Do not
+  # wake it (that is the user's power state); skip the screenshot loudly.
+  if ! hyprctl monitors -j | jq -e 'all(.[]; .dpmsStatus)' >/dev/null 2>&1; then
+    echo "WARNING: display is asleep, card screenshot SKIPPED (the card was opened and closed over IPC, but not looked at). Re-run with the screen on."
+    skipped=1
+  # grim also blocks when the screen is locked or on the screensaver, so bound it.
+  elif timeout 15 grim -g "$((lw - 490)),0 490x420" "$out/card.png"; then
+    echo "screenshot: $out/card.png"
+  else
+    bad "screenshot failed or timed out (is the screen locked, asleep or on the screensaver?)"
+  fi
   omarchy-shell "$id" close >/dev/null 2>&1 || bad "close failed"
 else
   bad "IPC target '$id' not found; the live shell is running old code. Try --restart"
@@ -69,4 +80,5 @@ if [[ -n $errs ]]; then echo "$errs" | tail -10; bad "QML errors or warnings log
 
 echo
 (( fail )) && { echo "RESULT: FAIL (screenshots in $out)"; exit 1; }
+(( skipped )) && { echo "RESULT: OK, but the card screenshot was skipped (display asleep); screenshots in $out"; exit 0; }
 echo "RESULT: OK (screenshots in $out)"

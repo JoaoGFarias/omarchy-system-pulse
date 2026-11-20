@@ -3,5 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "license": "MIT",
-  "scripts": { "test": "node --test" }
+  "scripts": {
+    "typecheck": "bash scripts/typecheck.sh",
+    "test": "npm run typecheck && node --test",
+    "coverage": "node --test --experimental-test-coverage --test-coverage-include=SysmonModel.js --test-coverage-lines=100 --test-coverage-branches=100 --test-coverage-functions=100",
+    "mutation": "bash scripts/mutation.sh",
+    "check": "npm run typecheck && npm run coverage"
+  }
 }

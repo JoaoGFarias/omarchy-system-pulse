@@ -3,8 +3,17 @@
 // Pure parsing and math for the system monitor widget (no QML dependencies,
 // so it can be unit tested with `node --test`).
 
-// Parses the first line of /proc/stat ("cpu  user nice system idle iowait ...")
-// into { total, idle } jiffy counters, or null if the line is not valid.
+/**
+ * @typedef {{ total: number, idle: number }} CpuSample Jiffy counters from /proc/stat.
+ * @typedef {{ totalGb: number, usedGb: number, pct: number }} Memory
+ */
+
+/**
+ * Parses the first line of /proc/stat ("cpu  user nice system idle iowait ...")
+ * into { total, idle } jiffy counters, or null if the line is not valid.
+ * @param {unknown} line
+ * @returns {CpuSample | null}
+ */
 function parseCpuLine(line) {
   if (typeof line !== "string" || line.indexOf("cpu ") !== 0) return null
   var f = line.trim().split(/\s+/).slice(1).map(Number)
@@ -14,25 +23,33 @@ function parseCpuLine(line) {
   return { total: total, idle: idle }
 }
 
-// CPU % between two samples, clamped to 0-100. Returns null when there is no
-// usable previous sample (first run, or counters that did not advance).
+/**
+ * CPU % between two samples, clamped to 0-100. Returns null when there is no
+ * usable previous sample (first run, or counters that did not advance).
+ * @param {CpuSample | null | undefined} prev
+ * @param {CpuSample | null | undefined} cur
+ * @returns {number | null}
+ */
 function cpuPercent(prev, cur) {
   if (!prev || !cur || cur.total <= prev.total) return null
   var pct = 100 * (1 - (cur.idle - prev.idle) / (cur.total - prev.total))
   return Math.max(0, Math.min(100, pct))
 }
 
-// Parses MemTotal / MemAvailable (kB) out of text containing /proc/meminfo
-// lines. Returns { totalGb, usedGb, pct } or null if either value is missing.
+/**
+ * Parses MemTotal / MemAvailable (kB) out of text containing /proc/meminfo
+ * lines. Returns { totalGb, usedGb, pct } or null if either value is missing.
+ * @param {unknown} text
+ * @returns {Memory | null}
+ */
 function parseMemory(text) {
   var total = 0, avail = -1
-  var lines = String(text).split("\n")
-  for (var i = 0; i < lines.length; i++) {
-    var m = /^(MemTotal|MemAvailable):\s+(\d+)/.exec(lines[i])
-    if (!m) continue
+  String(text).split("\n").forEach(function(line) {
+    var m = /^(MemTotal|MemAvailable):\s+(\d+)/.exec(line)
+    if (!m) return
     if (m[1] === "MemTotal") total = parseInt(m[2], 10)
     else avail = parseInt(m[2], 10)
-  }
+  })
   if (total <= 0 || avail < 0 || avail > total) return null
   return {
     totalGb: total / 1048576,
@@ -41,45 +58,60 @@ function parseMemory(text) {
   }
 }
 
-// Per-core counters from text containing "cpuN ..." lines (as in /proc/stat).
-// Returns an array indexed by core number; cores that are missing or invalid
-// are null.
+/**
+ * Per-core counters from text containing "cpuN ..." lines (as in /proc/stat).
+ * Returns an array indexed by core number; cores that are missing or invalid
+ * are null.
+ * @param {unknown} text
+ * @returns {(CpuSample | null)[]}
+ */
 function parseCoreLines(text) {
+  /** @type {(CpuSample | null | undefined)[]} */
   var out = []
-  var lines = String(text).split("\n")
-  for (var i = 0; i < lines.length; i++) {
-    var m = /^cpu(\d+)\s+(.*)$/.exec(lines[i])
-    if (!m) continue
-    var c = parseCpuLine("cpu " + m[2])
-    out[parseInt(m[1], 10)] = c
-  }
-  for (var j = 0; j < out.length; j++) if (out[j] === undefined) out[j] = null
-  return out
+  String(text).split("\n").forEach(function(line) {
+    // One separator is enough: parseCpuLine trims and splits on any whitespace.
+    var m = /^cpu(\d+)\s(.*)/.exec(line)
+    if (m) out[parseInt(m[1], 10)] = parseCpuLine("cpu " + m[2])
+  })
+  // Array.from visits holes in a sparse array as undefined, so gaps become null.
+  return Array.from(out, function(c) { return c || null })
 }
 
-// Usage % per core between two samples; 0 where a core has no usable delta.
+/**
+ * Usage % per core between two samples; 0 where a core has no usable delta.
+ * @param {(CpuSample | null)[] | null | undefined} prev
+ * @param {(CpuSample | null)[]} cur
+ * @returns {number[]}
+ */
 function coreUsage(prev, cur) {
-  var out = []
-  for (var i = 0; i < cur.length; i++) {
-    var p = prev && i < prev.length ? cpuPercent(prev[i], cur[i]) : null
-    out.push(p === null ? 0 : p)
-  }
-  return out
+  return cur.map(function(sample, i) {
+    var p = cpuPercent(prev ? prev[i] : null, sample)
+    return p === null ? 0 : p
+  })
 }
 
-// Reads a "temp <millidegrees>" line and returns degrees Celsius, or null when
-// it is missing or implausible (outside 0-150 C).
+/**
+ * Reads a "temp <millidegrees>" line and returns degrees Celsius, or null when
+ * it is missing or implausible (outside 0-150 C).
+ * @param {unknown} text
+ * @returns {number | null}
+ */
 function parseTemperature(text) {
   var m = /^temp (\d+)\s*$/m.exec(String(text))
   if (!m) return null
   var c = parseInt(m[1], 10) / 1000
-  return c >= 0 && c <= 150 ? c : null
+  return c <= 150 ? c : null
 }
 
-// The refresh interval in ms from a user setting: a number between 500 and
-// 10000, falling back to 2000 for anything else.
+/**
+ * The refresh interval in ms from a user setting: a number between 500 and
+ * 10000, falling back to 2000 for anything else.
+ * @param {unknown} value
+ * @returns {number}
+ */
 function clampInterval(value) {
   var n = Number(value)
-  if (value === null || value === undefined || value === "" || !isFinite(n)) return 2000
+  // Number(undefined) is NaN, so undefined needs no check of its own.
+  if (value === null || value === "" || !isFinite(n)) return 2000
   return Math.max(500, Math.min(10000, Math.round(n)))
 }

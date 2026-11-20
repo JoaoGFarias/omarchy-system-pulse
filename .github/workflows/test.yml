@@ -9,12 +9,27 @@ permissions:
 
 jobs:
   test:
+    name: Types, unit tests, 100% coverage
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm test
+      - name: Typecheck and unit tests
+        run: npm test
+      - name: Coverage must stay at 100% (lines, branches, functions)
+        run: npm run coverage
       - name: Manifest is valid JSON
         run: node -e 'JSON.parse(require("fs").readFileSync("manifest.json","utf8"))'
+
+  mutation:
+    name: Mutation score must stay at 100%
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Mutation tests (StrykerJS in a throwaway workspace)
+        run: npm run mutation
