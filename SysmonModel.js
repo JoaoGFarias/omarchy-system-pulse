@@ -115,3 +115,58 @@ function clampInterval(value) {
   if (value === null || value === "" || !isFinite(n)) return 2000
   return Math.max(500, Math.min(10000, Math.round(n)))
 }
+
+// ---- swap / load / uptime ----
+
+/**
+ * Parses SwapTotal / SwapFree (kB) out of text containing /proc/meminfo
+ * lines. Returns { totalGb, usedGb, pct }, or null when either value is
+ * missing or inconsistent, or when there is no swap at all (SwapTotal 0), so
+ * the popup can hide the row.
+ * @param {unknown} text
+ * @returns {Memory | null}
+ */
+function parseSwap(text) {
+  var total = 0, free = -1
+  String(text).split("\n").forEach(function(line) {
+    var m = /^(SwapTotal|SwapFree):\s+(\d+)/.exec(line)
+    if (!m) return
+    if (m[1] === "SwapTotal") total = parseInt(m[2], 10)
+    else free = parseInt(m[2], 10)
+  })
+  if (total <= 0 || free < 0 || free > total) return null
+  return {
+    totalGb: total / 1048576,
+    usedGb: (total - free) / 1048576,
+    pct: 100 * (total - free) / total
+  }
+}
+
+/**
+ * The 1, 5 and 15 minute load averages from the start of /proc/loadavg
+ * ("0.52 1.05 2.50 2/1234 56789"), or null when they are not three plain
+ * non-negative numbers.
+ * @param {unknown} text
+ * @returns {number[] | null}
+ */
+function parseLoad(text) {
+  var m = /^\s*(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)(?:\s|$)/.exec(String(text))
+  return m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null
+}
+
+/**
+ * Compact uptime from whole seconds, using the two largest units: "59s",
+ * "5m", "1h 0m", "3d 4h". Fractions are truncated. Returns "" for negative or
+ * non-finite input.
+ * @param {unknown} seconds
+ * @returns {string}
+ */
+function formatUptime(seconds) {
+  var s = Math.floor(Number(seconds))
+  if (seconds === null || seconds === "" || !isFinite(s) || s < 0) return ""
+  var d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60)
+  if (d > 0) return d + "d " + h + "h"
+  if (h > 0) return h + "h " + m + "m"
+  if (m > 0) return m + "m"
+  return s + "s"
+}
