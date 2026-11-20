@@ -1,15 +1,17 @@
-# omarchy-sysmon
+# System Pulse (omarchy-sysmon)
 
 ![CPU and memory in the Omarchy bar with the details card open: CPU temperature, a load bar per thread, and memory usage](preview.png)
 
-A bar widget for the [Omarchy](https://omarchy.org/) shell that shows live CPU and memory usage, with a details card for per-thread load and CPU temperature.
+A bar widget for the [Omarchy](https://omarchy.org/) shell that shows live CPU and memory usage, with a details card for everything else.
 
-- Shows CPU % and memory % in the bar, refreshed every 2 seconds by default
-- Turns the urgent color above 90% CPU or memory
+- CPU % and memory % in the bar, refreshed every 2 seconds by default; urgent color above 90%
 - Tooltip with exact values and GB used / total
-- Left-click opens a details card: CPU temperature (AMD `k10temp`, Intel `coretemp`), a load bar per thread, and memory used / total
-- Right-click (or the card's "Open btop" row) opens btop
-- Configurable refresh interval
+- Left-click opens the details card; right-click (or the card's "Open btop" row) opens btop
+- Card: CPU temperature (AMD `k10temp`, Intel `coretemp`), a load bar per thread, a last-minute history graph for CPU and memory, memory, swap (hidden when there is none), load average, uptime
+- GPU utilisation, VRAM and temperature (AMD via sysfs; NVIDIA via `nvidia-smi` when installed; hidden when neither exists)
+- Fan speeds (hidden when the machine exposes none), network down/up and disk read/write throughput
+- Top processes by CPU, polled only while the card is open (`ps` CPU % is a lifetime average per process)
+- Configurable refresh interval and process count
 
 ## Requirements
 
@@ -29,6 +31,12 @@ The refresh interval is in milliseconds (500 to 10000, default 2000):
 
 ```bash
 omarchy bar set joao.sysmon interval 1000 --json
+```
+
+The number of top processes on the card is 0 to 15 (default 5, 0 hides the list):
+
+```bash
+omarchy bar set joao.sysmon processes 8 --json
 ```
 
 ## Keybinding

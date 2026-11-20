@@ -418,3 +418,23 @@ function formatBytesPerSecond(n) {
   for (i = 0; i < 3 && n >= 1024; i++) n /= 1024
   return (i === 0 ? String(Math.round(n)) : n.toFixed(1)) + " " + units[i]
 }
+
+// ---- sections ----
+
+/**
+ * The lines under a "#name" marker line, up to the next marker, joined with
+ * newlines. Empty when the marker is absent.
+ * @param {unknown} text
+ * @param {string} name
+ * @returns {string}
+ */
+function section(text, name) {
+  /** @type {string[]} */
+  var out = []
+  var inside = false
+  String(text).split("\n").forEach(function(line) {
+    if (line.charAt(0) === "#") inside = line === "#" + name
+    else if (inside) out.push(line)
+  })
+  return out.join("\n")
+}

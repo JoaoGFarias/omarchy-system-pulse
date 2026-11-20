@@ -5,5 +5,16 @@
   "popup.temperature": "%1 °C",
   "popup.cores": "Threads",
   "popup.memory": "Memory %1 / %2 GB (%3%)",
-  "popup.btop": "Open btop"
+  "popup.btop": "Open btop",
+  "popup.historyCpu": "CPU, last minute",
+  "popup.historyMemory": "Memory, last minute",
+  "popup.swap": "Swap %1 / %2 GB",
+  "popup.load": "Load %1 · %2 · %3",
+  "popup.uptime": "Up %1",
+  "popup.gpu": "GPU %1% · VRAM %2 / %3 GB",
+  "popup.fan": "%1 %2 rpm",
+  "popup.network": "Network ↓ %1  ↑ %2",
+  "popup.disk": "Disk read %1  write %2",
+  "popup.processes": "Top processes (CPU %, memory %)",
+  "popup.procLine": "%1%  %2%"
 }

@@ -20,10 +20,29 @@ BarWidget {
   property var prevSample: null
   property var prevCores: []
   property bool popupOpen: false
+  property var swap: null
+  property var load: null
+  property string uptime: ""
+  property var gpu: null
+  property var fans: []
+  property var cpuHistory: []
+  property var memHistory: []
+  property var procs: []
+  property var prevNet: null
+  property var prevDisk: null
+  property real prevIoAt: 0
+  property real netRx: -1
+  property real netTx: -1
+  property real diskRead: -1
+  property real diskWrite: -1
 
   // Refresh interval in ms. Set it with:
   //   omarchy bar set joao.sysmon interval 1000 --json
   readonly property int pollInterval: Model.clampInterval(root.setting("interval", 2000))
+
+  // Rows in the "top processes" list: omarchy bar set joao.sysmon processes 8 --json
+  // (0 hides the list, maximum 15).
+  function processCount() { return Model.clampProcessCount(root.setting("processes", 5)) }
 
   function close() { popupOpen = false }
   function togglePopup() { popupOpen = !popupOpen }
@@ -63,18 +82,77 @@ BarWidget {
       memUsedGb = mem.usedGb
       memPct = mem.pct
     }
+    var keep = Model.historyLength(pollInterval)
+    cpuHistory = Model.pushSample(cpuHistory, cpu, keep)
+    memHistory = Model.pushSample(memHistory, memPct, keep)
+    swap = Model.parseSwap(out)
+    load = Model.parseLoad(Model.section(out, "load"))
+    uptime = Model.formatUptime(Model.section(out, "uptime"))
+    gpu = Model.parseGpuAmd(Model.section(out, "gpu")) || Model.parseGpuNvidia(Model.section(out, "gpunv"))
+    fans = Model.parseFans(Model.section(out, "fans"))
+    parseIo(out)
+  }
+
+  // Network and disk throughput from counter deltas between two polls.
+  function parseIo(out) {
+    var now = Date.now()
+    var net = Model.parseNetDev(Model.section(out, "net"))
+    var disk = Model.parseDiskstats(Model.section(out, "disk"))
+    var ms = now - prevIoAt
+    var v
+    if (prevNet) {
+      v = Model.rate(prevNet.rx, net.rx, ms); netRx = v === null ? -1 : v
+      v = Model.rate(prevNet.tx, net.tx, ms); netTx = v === null ? -1 : v
+      v = Model.rate(prevDisk.readBytes, disk.readBytes, ms); diskRead = v === null ? -1 : v
+      v = Model.rate(prevDisk.writeBytes, disk.writeBytes, ms); diskWrite = v === null ? -1 : v
+    }
+    prevNet = net
+    prevDisk = disk
+    prevIoAt = now
   }
 
   Process {
     id: proc
     command: ["sh", "-c",
       "grep -E '^cpu' /proc/stat; " +
-      "grep -E '^(MemTotal|MemAvailable):' /proc/meminfo; " +
+      "grep -E '^(MemTotal|MemAvailable|SwapTotal|SwapFree):' /proc/meminfo; " +
       "for h in /sys/class/hwmon/hwmon*; do " +
       "case $(cat $h/name 2>/dev/null) in " +
       "k10temp|coretemp|zenpower) echo \"temp $(cat $h/temp1_input 2>/dev/null)\"; break;; " +
-      "esac; done"]
+      "esac; done; " +
+      "echo '#load'; cat /proc/loadavg; " +
+      "echo '#uptime'; cut -d. -f1 /proc/uptime; " +
+      "echo '#gpu'; for d in /sys/class/drm/card*/device; do " +
+      "[ -r $d/gpu_busy_percent ] || continue; " +
+      "echo \"gpu_busy $(cat $d/gpu_busy_percent)\"; " +
+      "echo \"vram_used $(cat $d/mem_info_vram_used)\"; " +
+      "echo \"vram_total $(cat $d/mem_info_vram_total)\"; " +
+      "for t in $d/hwmon/hwmon*/temp1_input; do [ -r $t ] && echo \"gpu_temp $(cat $t)\" && break; done; " +
+      "break; done; " +
+      "echo '#gpunv'; command -v nvidia-smi >/dev/null && nvidia-smi " +
+      "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits 2>/dev/null; " +
+      "echo '#fans'; for f in /sys/class/hwmon/hwmon*/fan*_input; do [ -r $f ] || continue; " +
+      "n=${f##*/fan}; n=${n%_input}; " +
+      "printf 'fan %s %s %s\\n' \"$(tr -d ' \\n' < ${f%/*}/name 2>/dev/null)\" $n \"$(cat $f 2>/dev/null)\"; done; " +
+      "echo '#net'; cat /proc/net/dev; " +
+      "echo '#disk'; cat /proc/diskstats"]
     stdout: StdioCollector { onStreamFinished: root.parse(text) }
+  }
+
+  // Top processes: polled only while the card is open, so the idle bar stays cheap.
+  // (ps %CPU is each process's lifetime average, not its instantaneous load.)
+  Process {
+    id: psProc
+    command: ["sh", "-c", "ps -eo pid=,comm=,pcpu=,pmem= --sort=-pcpu | head -n 16"]
+    stdout: StdioCollector { onStreamFinished: root.procs = Model.parseProcesses(text, root.processCount()) }
+  }
+
+  Timer {
+    interval: root.pollInterval
+    running: root.popupOpen && root.processCount() > 0
+    repeat: true
+    triggeredOnStart: true
+    onTriggered: if (!psProc.running) psProc.running = true
   }
 
   Timer {
@@ -99,6 +177,38 @@ BarWidget {
     onPressed: function(mouseButton) {
       if (mouseButton === Qt.RightButton) root.openBtop()
       else root.popupOpen = !root.popupOpen
+    }
+  }
+
+  component Caption: Text {
+    textFormat: Text.PlainText
+    color: Qt.darker(Commons.Color.popups.text, 1.4)
+    font.family: Style.font.family
+    font.pixelSize: Style.font.caption
+  }
+
+  // A thin bar chart of recent 0-100 samples, newest on the right.
+  component Spark: Item {
+    id: spark
+    property var values: []
+    height: Style.space(24)
+    Row {
+      anchors.bottom: parent.bottom
+      height: parent.height
+      spacing: Style.space(1)
+      Repeater {
+        model: spark.values
+        Item {
+          width: Math.max(1, (spark.width - Style.space(1) * (Math.max(1, spark.values.length) - 1)) / Math.max(1, spark.values.length))
+          height: spark.height
+          Rectangle {
+            anchors.bottom: parent.bottom
+            width: parent.width
+            height: Math.max(Style.space(1), parent.height * Math.min(100, modelData) / 100)
+            color: Commons.Color.accent
+          }
+        }
+      }
     }
   }
 
@@ -189,6 +299,71 @@ BarWidget {
         color: Commons.Color.popups.text
         font.family: Style.font.family
         font.pixelSize: Style.font.body
+      }
+
+      Spark { width: parent.width; values: root.cpuHistory }
+      Caption { text: strings.t("popup.historyCpu") }
+      Spark { width: parent.width; values: root.memHistory }
+      Caption { text: strings.t("popup.historyMemory") }
+
+      Caption {
+        visible: root.swap !== null
+        text: root.swap ? strings.t("popup.swap")
+          .replace("%1", Commons.I18n.formatNumber(root.swap.usedGb, 1))
+          .replace("%2", Commons.I18n.formatNumber(root.swap.totalGb, 1)) : ""
+      }
+      Caption {
+        visible: root.load !== null
+        text: root.load ? strings.t("popup.load")
+          .replace("%1", Commons.I18n.formatNumber(root.load[0], 2))
+          .replace("%2", Commons.I18n.formatNumber(root.load[1], 2))
+          .replace("%3", Commons.I18n.formatNumber(root.load[2], 2)) : ""
+      }
+      Caption {
+        visible: root.uptime !== ""
+        text: strings.t("popup.uptime").replace("%1", root.uptime)
+      }
+      Caption {
+        visible: root.gpu !== null
+        text: root.gpu ? strings.t("popup.gpu")
+          .replace("%1", Commons.I18n.formatNumber(root.gpu.util, 0))
+          .replace("%2", Commons.I18n.formatNumber(root.gpu.vramUsedGb, 1))
+          .replace("%3", Commons.I18n.formatNumber(root.gpu.vramTotalGb, 1))
+          + (root.gpu.tempC !== null ? "  " + Commons.I18n.formatNumber(root.gpu.tempC, 0) + " °C" : "") : ""
+      }
+      Caption {
+        visible: root.fans.length > 0
+        text: root.fans.map(function(f) { return strings.t("popup.fan").replace("%1", f.label).replace("%2", f.rpm) }).join("  ")
+      }
+      Caption {
+        visible: root.netRx >= 0 && root.netTx >= 0
+        text: strings.t("popup.network")
+          .replace("%1", Model.formatBytesPerSecond(root.netRx))
+          .replace("%2", Model.formatBytesPerSecond(root.netTx))
+      }
+      Caption {
+        visible: root.diskRead >= 0 && root.diskWrite >= 0
+        text: strings.t("popup.disk")
+          .replace("%1", Model.formatBytesPerSecond(root.diskRead))
+          .replace("%2", Model.formatBytesPerSecond(root.diskWrite))
+      }
+
+      Caption { visible: root.procs.length > 0; text: strings.t("popup.processes") }
+      Repeater {
+        model: root.procs
+        Row {
+          spacing: Style.space(8)
+          Text {
+            width: Style.space(150)
+            elide: Text.ElideRight
+            textFormat: Text.PlainText
+            text: modelData.name
+            color: Commons.Color.popups.text
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
+          Caption { text: strings.t("popup.procLine").replace("%1", modelData.cpu.toFixed(1)).replace("%2", modelData.mem.toFixed(1)) }
+        }
       }
 
       Text {

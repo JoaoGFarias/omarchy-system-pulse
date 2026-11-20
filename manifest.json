@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
   "id": "joao.sysmon",
-  "name": "System monitor",
+  "name": "System Pulse",
   "version": "1.0.0",
   "author": "JoaoGFarias",
-  "description": "Live CPU and memory in the bar, with a details card: per-thread load, CPU temperature and memory. Configurable refresh interval.",
+  "description": "CPU and memory in the bar, plus a details card: per-thread load, temperature, history graphs, top processes, swap, load, uptime, GPU, fans, network and disk. Configurable interval.",
   "kinds": [
     "bar-widget"
   ],
@@ -12,8 +12,8 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "System monitor",
-    "description": "Live CPU and memory in the bar, with a details card: per-thread load, CPU temperature and memory. Configurable refresh interval.",
+    "displayName": "System Pulse",
+    "description": "CPU and memory in the bar, plus a details card: per-thread load, temperature, history graphs, top processes, swap, load, uptime, GPU, fans, network and disk. Configurable interval.",
     "category": "System",
     "allowMultiple": false,
     "defaultSection": "right"
