@@ -1,3 +1,9 @@
 {
-  "tooltip": "CPU %1% · Memory %2% (%3 / %4 GB)\nClick to open btop"
+  "tooltip": "CPU %1% · Memory %2% (%3 / %4 GB)\nClick for details · right-click for btop",
+  "popup.title": "System",
+  "popup.cpu": "CPU %1%",
+  "popup.temperature": "%1 °C",
+  "popup.cores": "Threads",
+  "popup.memory": "Memory %1 / %2 GB (%3%)",
+  "popup.btop": "Open btop"
 }

@@ -40,3 +40,46 @@ function parseMemory(text) {
     pct: 100 * (total - avail) / total
   }
 }
+
+// Per-core counters from text containing "cpuN ..." lines (as in /proc/stat).
+// Returns an array indexed by core number; cores that are missing or invalid
+// are null.
+function parseCoreLines(text) {
+  var out = []
+  var lines = String(text).split("\n")
+  for (var i = 0; i < lines.length; i++) {
+    var m = /^cpu(\d+)\s+(.*)$/.exec(lines[i])
+    if (!m) continue
+    var c = parseCpuLine("cpu " + m[2])
+    out[parseInt(m[1], 10)] = c
+  }
+  for (var j = 0; j < out.length; j++) if (out[j] === undefined) out[j] = null
+  return out
+}
+
+// Usage % per core between two samples; 0 where a core has no usable delta.
+function coreUsage(prev, cur) {
+  var out = []
+  for (var i = 0; i < cur.length; i++) {
+    var p = prev && i < prev.length ? cpuPercent(prev[i], cur[i]) : null
+    out.push(p === null ? 0 : p)
+  }
+  return out
+}
+
+// Reads a "temp <millidegrees>" line and returns degrees Celsius, or null when
+// it is missing or implausible (outside 0-150 C).
+function parseTemperature(text) {
+  var m = /^temp (\d+)\s*$/m.exec(String(text))
+  if (!m) return null
+  var c = parseInt(m[1], 10) / 1000
+  return c >= 0 && c <= 150 ? c : null
+}
+
+// The refresh interval in ms from a user setting: a number between 500 and
+// 10000, falling back to 2000 for anything else.
+function clampInterval(value) {
+  var n = Number(value)
+  if (value === null || value === undefined || value === "" || !isFinite(n)) return 2000
+  return Math.max(500, Math.min(10000, Math.round(n)))
+}
