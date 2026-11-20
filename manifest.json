@@ -1,0 +1,11 @@
+{
+  "schemaVersion": 1,
+  "id": "joao.sysmon",
+  "name": "System monitor",
+  "version": "1.0.0",
+  "author": "JoaoGFarias",
+  "description": "Live CPU and memory usage in the bar",
+  "kinds": ["bar-widget"],
+  "entryPoints": { "barWidget": "BarWidget.qml" },
+  "barWidget": { "displayName": "System monitor", "description": "Live CPU and memory usage", "category": "System", "allowMultiple": false, "defaultSection": "right" }
+}
