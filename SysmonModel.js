@@ -170,3 +170,251 @@ function formatUptime(seconds) {
   if (m > 0) return m + "m"
   return s + "s"
 }
+
+// ---- history ----
+
+/**
+ * Appends a sample to a history buffer and returns a new array holding at most
+ * the last `max` samples. The input is never mutated; a non-finite value is
+ * ignored (the result is an unchanged copy).
+ * @param {number[]} buf
+ * @param {unknown} value
+ * @param {number} max
+ * @returns {number[]}
+ */
+function pushSample(buf, value, max) {
+  var out = typeof value === "number" && isFinite(value) ? buf.concat([value]) : buf
+  var keep = Math.max(0, Math.floor(max) || 0)
+  return out.slice(out.length - Math.min(keep, out.length))
+}
+
+/**
+ * How many samples cover about 60 seconds at the given refresh interval,
+ * bounded to 10-120. Unusable intervals give 30 (the 2000 ms default).
+ * @param {unknown} intervalMs
+ * @returns {number}
+ */
+function historyLength(intervalMs) {
+  var ms = Number(intervalMs)
+  if (!(ms > 0) || !isFinite(ms)) return 30
+  return Math.max(10, Math.min(120, Math.round(60000 / ms)))
+}
+
+// ---- processes ----
+
+/**
+ * @typedef {{ pid: number, name: string, cpu: number, mem: number }} ProcessInfo
+ */
+
+/**
+ * How many processes to show from a user setting: an integer between 0 and
+ * 15, falling back to 5 for anything else.
+ * @param {unknown} value
+ * @returns {number}
+ */
+function clampProcessCount(value) {
+  var n = Number(value)
+  if (value === null || value === "" || !isFinite(n)) return 5
+  return Math.max(0, Math.min(15, Math.round(n)))
+}
+
+/**
+ * Parses `ps -eo pid=,comm=,pcpu=,pmem= --sort=-pcpu` output into at most n
+ * processes (n goes through clampProcessCount). The command name may contain
+ * spaces; being untrusted, it has control characters removed and is cut to 24
+ * characters. Malformed lines are skipped.
+ * @param {unknown} text
+ * @param {unknown} n
+ * @returns {ProcessInfo[]}
+ */
+function parseProcesses(text, n) {
+  /** @type {ProcessInfo[]} */
+  var out = []
+  String(text).split("\n").forEach(function(line) {
+    var p = parseProcessLine(line)
+    if (p) out.push(p)
+  })
+  return out.slice(0, clampProcessCount(n))
+}
+
+/**
+ * One `ps` line as a process, or null when it is malformed. Control
+ * characters (tab excepted, it is a separator) are dropped before parsing.
+ * @param {string} line
+ * @returns {ProcessInfo | null}
+ */
+function parseProcessLine(line) {
+  var clean = line.replace(/[\x00-\x08\x0a-\x1f\x7f-\x9f]/g, "")
+  var m = /^\s*(\d+)\s+(\S.*?)\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s*$/.exec(clean)
+  if (!m) return null
+  return { pid: parseInt(m[1], 10), name: m[2].slice(0, 24), cpu: parseFloat(m[3]), mem: parseFloat(m[4]) }
+}
+
+// ---- gpu ----
+
+/**
+ * @typedef {{ util: number, vramUsedGb: number, vramTotalGb: number, tempC: number | null }} Gpu
+ */
+
+/**
+ * Builds a Gpu from raw numbers, or null when util is not 0-100 or the VRAM
+ * total is not positive. The temperature is optional: null when absent or
+ * above 150 C (NaN also gives null).
+ * @param {number} util
+ * @param {number} usedGb
+ * @param {number} totalGb
+ * @param {number} tempC NaN when unknown.
+ * @returns {Gpu | null}
+ */
+function makeGpu(util, usedGb, totalGb, tempC) {
+  if (util > 100 || totalGb <= 0) return null
+  return {
+    util: util,
+    vramUsedGb: usedGb,
+    vramTotalGb: totalGb,
+    tempC: tempC <= 150 ? tempC : null
+  }
+}
+
+/**
+ * Parses the AMD text protocol ("gpu_busy 42", "vram_used <bytes>",
+ * "vram_total <bytes>", "gpu_temp <millidegrees>", one per line, first GPU
+ * only). Returns null when busy or either VRAM value is missing; tempC is null
+ * when the temperature is missing or implausible.
+ * @param {unknown} text
+ * @returns {Gpu | null}
+ */
+function parseGpuAmd(text) {
+  var s = String(text)
+  /** @param {string} key */
+  function field(key) {
+    var m = new RegExp("^" + key + " (\\d+)\\s*$", "m").exec(s)
+    return m ? parseInt(m[1], 10) : null
+  }
+  var busy = field("gpu_busy")
+  var used = field("vram_used")
+  var total = field("vram_total")
+  var temp = field("gpu_temp")
+  if (busy === null || used === null || !total) return null
+  return makeGpu(busy, used / 1073741824, total / 1073741824, temp === null ? NaN : temp / 1000)
+}
+
+/**
+ * Parses the first line of `nvidia-smi --query-gpu=utilization.gpu,
+ * memory.used,memory.total,temperature.gpu --format=csv,noheader,nounits`
+ * (memory in MiB). "[N/A]" is tolerated for the temperature only; any other
+ * missing or malformed field gives null.
+ * @param {unknown} text
+ * @returns {Gpu | null}
+ */
+function parseGpuNvidia(text) {
+  var line = String(text).split("\n").find(function(l) { return l.trim() !== "" })
+  if (line === undefined) return null
+  var f = line.split(",").map(function(p) { return p.trim() })
+  if (f.length !== 4 || !f.slice(0, 3).every(function(p) { return /^\d+$/.test(p) }) || !/^(\d+|\[N\/A\])$/.test(f[3])) return null
+  // parseInt("[N/A]") is NaN, which makeGpu turns into a null temperature.
+  return makeGpu(parseInt(f[0], 10), parseInt(f[1], 10) / 1024, parseInt(f[2], 10) / 1024, parseInt(f[3], 10))
+}
+
+// ---- fans ----
+
+/**
+ * @typedef {{label: string, rpm: number}} Fan
+ */
+
+/**
+ * Reads "fan <hwmonname> <index> <rpm>" lines into fans. Zero RPM is valid (an
+ * idle fan); lines whose RPM is not a plain non-negative integer up to 100000
+ * are skipped. The label is "name #index", or just the name when only one fan
+ * was reported.
+ * @param {unknown} text
+ * @returns {Fan[]}
+ */
+function parseFans(text) {
+  /** @type {{name: string, index: string, rpm: number}[]} */
+  var found = []
+  String(text).split("\n").forEach(function(line) {
+    var m = /^fan (\S+) (\d+) (\d+)\s*$/.exec(line)
+    if (m && parseInt(m[3], 10) <= 100000)
+      found.push({ name: m[1], index: m[2], rpm: parseInt(m[3], 10) })
+  })
+  return found.map(function(f) {
+    return { label: found.length === 1 ? f.name : f.name + " #" + f.index, rpm: f.rpm }
+  })
+}
+
+// ---- io ----
+
+/**
+ * @typedef {{ rx: number, tx: number }} NetCounters Cumulative bytes received/sent.
+ * @typedef {{ readBytes: number, writeBytes: number }} DiskCounters Cumulative bytes read/written.
+ */
+
+/**
+ * Sums received/sent bytes over /proc/net/dev, skipping the loopback and
+ * virtual interfaces (lo, veth*, docker*, br-*) and any malformed line.
+ * @param {unknown} text
+ * @returns {NetCounters}
+ */
+function parseNetDev(text) {
+  var sum = { rx: 0, tx: 0 }
+  String(text).split("\n").forEach(function(line) {
+    var colon = line.indexOf(":")
+    if (colon < 1) return
+    var name = line.slice(0, colon).trim()
+    if (name === "lo" || /^(veth|docker|br-)/.test(name)) return
+    var f = line.slice(colon + 1).trim().split(/\s+/).map(Number)
+    if (f.length < 9 || f.some(function(n) { return !isFinite(n) })) return
+    sum.rx += f[0]
+    sum.tx += f[8]
+  })
+  return sum
+}
+
+/**
+ * Sums bytes read/written over /proc/diskstats for whole block devices only
+ * (nvme0n1, sda, vda, xvda, mmcblk0; not their partitions, loop, ram or dm).
+ * Sectors are 512 bytes regardless of the device.
+ * @param {unknown} text
+ * @returns {DiskCounters}
+ */
+function parseDiskstats(text) {
+  var sum = { readBytes: 0, writeBytes: 0 }
+  String(text).split("\n").forEach(function(line) {
+    var f = line.trim().split(/\s+/)
+    if (!/^(nvme\d+n\d+|(sd|vd|xvd)[a-z]+|mmcblk\d+)$/.test(f[2])) return
+    var read = Number(f[5])
+    var written = Number(f[9])
+    if (!isFinite(read) || !isFinite(written)) return
+    sum.readBytes += read * 512
+    sum.writeBytes += written * 512
+  })
+  return sum
+}
+
+/**
+ * Bytes per second between two cumulative counter values ms apart, or null
+ * when the counter went backwards (reset or wrap) or the interval is unusable.
+ * @param {number} prev
+ * @param {number} cur
+ * @param {number} ms
+ * @returns {number | null}
+ */
+function rate(prev, cur, ms) {
+  if (!isFinite(prev) || !isFinite(cur) || !(ms > 0) || cur < prev) return null
+  return (cur - prev) * 1000 / ms
+}
+
+/**
+ * Human readable throughput with 1024-based units, e.g. "1.5 MB/s".
+ * Negative or non-finite input reads as "0 B/s".
+ * @param {number} n bytes per second
+ * @returns {string}
+ */
+function formatBytesPerSecond(n) {
+  if (!isFinite(n) || n < 1) return "0 B/s"
+  var units = ["B/s", "KB/s", "MB/s", "GB/s"]
+  var i
+  for (i = 0; i < 3 && n >= 1024; i++) n /= 1024
+  return (i === 0 ? String(Math.round(n)) : n.toFixed(1)) + " " + units[i]
+}
