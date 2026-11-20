@@ -1,5 +1,7 @@
 # omarchy-sysmon
 
+![System monitor in the Omarchy bar](preview.png)
+
 A bar widget for the [Omarchy](https://omarchy.org/) shell that shows live CPU and memory usage.
 
 - Shows CPU % and memory % in the bar, refreshed every 2 seconds
@@ -28,3 +30,11 @@ omarchy plugin remove joao.sysmon
 ## License
 
 MIT
+
+## Development
+
+The parsing and math live in `SysmonModel.js` and are unit tested with Node's built-in test runner:
+
+```bash
+npm test
+```

@@ -3,6 +3,7 @@ import Quickshell.Io
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
+import "SysmonModel.js" as Model
 
 BarWidget {
   id: root
@@ -14,34 +15,23 @@ BarWidget {
   property real memUsedGb: 0
   property real memTotalGb: 0
   property real memPct: 0
-  property real prevTotal: 0
-  property real prevIdle: 0
+  property var prevSample: null
 
   Commons.Translations { id: strings; directory: Qt.resolvedUrl("i18n") }
 
   function parse(out) {
     var lines = out.split("\n")
-    var memTotal = 0, memAvail = 0
-    for (var i = 0; i < lines.length; i++) {
-      var l = lines[i]
-      if (l.indexOf("cpu ") === 0) {
-        var f = l.trim().split(/\s+/).slice(1).map(Number)
-        var idle = f[3] + (f[4] || 0)
-        var total = f.reduce(function(a, b) { return a + b }, 0)
-        if (prevTotal > 0 && total > prevTotal)
-          cpu = 100 * (1 - (idle - prevIdle) / (total - prevTotal))
-        prevTotal = total
-        prevIdle = idle
-      } else if (l.indexOf("MemTotal:") === 0) {
-        memTotal = parseInt(l.split(/\s+/)[1])
-      } else if (l.indexOf("MemAvailable:") === 0) {
-        memAvail = parseInt(l.split(/\s+/)[1])
-      }
+    var cur = Model.parseCpuLine(lines[0])
+    if (cur) {
+      var pct = Model.cpuPercent(prevSample, cur)
+      if (pct !== null) cpu = pct
+      prevSample = cur
     }
-    if (memTotal > 0) {
-      memTotalGb = memTotal / 1048576
-      memUsedGb = (memTotal - memAvail) / 1048576
-      memPct = 100 * (memTotal - memAvail) / memTotal
+    var mem = Model.parseMemory(out)
+    if (mem) {
+      memTotalGb = mem.totalGb
+      memUsedGb = mem.usedGb
+      memPct = mem.pct
     }
   }
 
